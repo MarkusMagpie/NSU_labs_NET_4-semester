@@ -15,7 +15,7 @@ struct ClientInfo {
 // AF_INET - IPv4, socket type: SOCK_DGRAM - UDP https://www.ibm.com/docs/pl/aix/7.1?topic=protocols-socket-types
 int create_udp_socket() {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) {
+    if (sock == -1) {
         throw std::runtime_error("Ошибка создания сокета");
     }
     
