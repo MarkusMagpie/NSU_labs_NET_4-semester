@@ -1,13 +1,15 @@
+
 #include <iostream>
 #include <cstring>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdexcept>
 #include <sys/socket.h>
+#include <cstdlib>
+#include <ctime>
 
 const int ROUTER_PORT = 5000;
 const int DHCP_SERVER_PORT = 67;
-const int DHCP_CLIENT_PORT = 68;
 
 struct ClientInfo {
     std::string ip;
@@ -47,12 +49,7 @@ void send_ping(int sock, const sockaddr_in& dest_addr, const ClientInfo& client,
                         " from " + client.ip + 
                         " (" + client.mac + ")";
     
-    size_t sent = sendto(sock, 
-                         message.c_str(), 
-                         message.length(), 
-                         0,
-                         reinterpret_cast<const sockaddr*>(&dest_addr),
-                         sizeof(dest_addr));
+    size_t sent = sendto(sock, message.c_str(), message.length(), 0, reinterpret_cast<const sockaddr*>(&dest_addr), sizeof(dest_addr));
     
     if (sent < 0) {
         throw std::runtime_error("Ошибка отправки сообщения");
@@ -67,102 +64,116 @@ void receive_response(int sock) {
     socklen_t addr_len = sizeof(from_addr);
     
     memset(buffer, 0, sizeof(buffer));
-    size_t received = recvfrom(sock, 
-                               buffer, 
-                               sizeof(buffer)-1, 
-                               0,
-                               reinterpret_cast<sockaddr*>(&from_addr),
-                               &addr_len);
+    ssize_t received = recvfrom(sock, buffer, sizeof(buffer)-1, 0, reinterpret_cast<sockaddr*>(&from_addr), &addr_len);
     
     if (received < 0) {
         std::cout << "Ответ не получен (таймаут).\n";
     } else {
         buffer[received] = '\0';
-        std::cout << "Получен ответ: " << buffer << "\n";
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &from_addr.sin_addr, ip_str, INET_ADDRSTRLEN);
+        std::cout << "Получен ответ от " << ip_str << ": " << buffer << "\n";
     }
 }
 
-std::string get_dhcp_ip(const std::string& mac) {
-    // UDP-сокет для обмена данными с DHCP-сервером
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); // AF_INET - используем IPv4; SOCK_DGRAM — тип сокета для UDP
+std::string dhcp_handshake(const std::string& mac) {
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); // UDP сокет
     if (sock < 0) {
-        throw std::runtime_error("Ошибка функции socket при создании DHCP сокета");
+        throw std::runtime_error("Ошибка создания DHCP сокета");
     }
 
-    // включаем возможность отправки широковещательных пакетов (адрес 255.255.255.255).
+    // broadcast: разрешает отправку широковещательных пакетов
     int broadcast = 1;
-    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
-        close(sock);
-        throw std::runtime_error("Ошибка настройки широковещания");
-    }
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+    // timeout: 15 секунд
+    timeval timeout{.tv_sec = 15, .tv_usec = 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    // таймер чтобы клиент не завис навсегда, если сервер недоступен
-    timeval timeout{.tv_sec = 5, .tv_usec = 0};
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        close(sock);
-        throw std::runtime_error("Ошибка установки таймаута DHCP");
-    }
-
-    // указываем что отправлять запросы на широковещательный адрес для сервера 
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(DHCP_SERVER_PORT);
+    // inet_pton() преобразует введённую строку IP-адреса ip в числовое представление и сохраняет его в server_addr.sin_addr
     inet_pton(AF_INET, "255.255.255.255", &server_addr.sin_addr);
 
-    // формируем и отправляем discover на сервер
-    std::string request = "DHCP_DISCOVER " + mac;
-    ssize_t sent = sendto(sock, request.c_str(), request.size(), 
-                         0, reinterpret_cast<const sockaddr*>(&server_addr), sizeof(server_addr));
-    if (sent < 0) {
-        close(sock);
-        throw std::runtime_error("Ошибка отправки DHCP запроса");
-    }
+    // Этап 1: DHCPDISCOVER
+    std::string discover_msg = "DHCP_DISCOVER " + mac;
+    // sendto() отправляет сообщение через UDP-сокет: 
+        //      sock – дескриптор сокета
+        //      discover_msg.c_str() – указатель на буфер с данными
+        //      discover_msg.length() – размер сообщения
+        //      последние параметры – адрес получателя и его размер соответственно
+    sendto(sock, discover_msg.c_str(), discover_msg.size(), 0,
+          reinterpret_cast<const sockaddr*>(&server_addr), sizeof(server_addr));
 
-    // ждем ответа от сервера 5 секунд
-    char buffer[1024] = {0};
+    // Получение DHCPOFFER - извлекаю предложенный IP адрес
+    char buffer[1024];
     sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
-    ssize_t received = recvfrom(sock, buffer, sizeof(buffer)-1, 
-                                0, reinterpret_cast<sockaddr*>(&from_addr), &from_len);
+    // recvfrom() получает данные из сокета sock, 
+    // https://www.opennet.ru/cgi-bin/opennet/man.cgi?topic=recvfrom&category=2
+    ssize_t received = recvfrom(sock, buffer, sizeof(buffer)-1, 0,
+                               reinterpret_cast<sockaddr*>(&from_addr), &from_len);
+    
     if (received <= 0) {
         close(sock);
-        throw std::runtime_error("Не получен ответ от DHCP сервера");
+        throw std::runtime_error("Нет ответа на DHCPDISCOVER");
+    }
+    buffer[received] = '\0';
+    
+    // парсинг DHCPOFFER - проверка на корректность, извлечение IP - подстрока после "DHCP_OFFER "
+    std::string offer(buffer);
+    if (offer.find("DHCP_OFFER ") != 0) {
+        close(sock);
+        throw std::runtime_error("Неверный ответ DHCPOFFER");
+    }
+    std::string ip = offer.substr(11);
+
+    // Этап 2: DHCPREQUEST - отправка запроса на использование предложенного IP
+    std::string request_msg = "DHCP_REQUEST " + mac + " " + ip;
+    sendto(sock, request_msg.c_str(), request_msg.size(), 0,
+          reinterpret_cast<const sockaddr*>(&server_addr), sizeof(server_addr));
+
+    // Получение DHCPACK/DHCPNAK
+    received = recvfrom(sock, buffer, sizeof(buffer)-1, 0,
+                       reinterpret_cast<sockaddr*>(&from_addr), &from_len);
+
+    if (received <= 0) {
+        close(sock);
+        throw std::runtime_error("Нет ответа на DHCPREQUEST");
     }
     buffer[received] = '\0';
 
-    // проверяю что response начинается с DHCP_OFFER; извлекаем ip-адрес 
-    std::string response(buffer);
-    std::string prefix = "DHCP_OFFER ";
-    if (response.find(prefix) != 0) {
+    std::string ack(buffer);
+    if (ack.find("DHCP_ACK ") == 0) {
+        std::cout << "Получен DHCPACK - успешное использование IP" << std::endl;
         close(sock);
-        throw std::runtime_error("Неверный ответ от DHCP");
-    }
-    std::string ip = response.substr(prefix.length());
-
-    // валидируем ip адрес полученный от сервера - проверяем, что строка является IPv4-адресом
-    sockaddr_in test_addr{};
-    if (inet_pton(AF_INET, ip.c_str(), &test_addr.sin_addr) <= 0) {
+        return ip;
+    } 
+    else if (ack.find("DHCP_NAK ") == 0) {
+        std::cout << "Получен DHCPNAK - IP занят" << std::endl;
         close(sock);
-        throw std::runtime_error("Неверный IP от DHCP");
+        throw std::runtime_error("Сервер отклонил запрос");
     }
-
-    close(sock);
-    return ip;
+    else {
+        close(sock);
+        throw std::runtime_error("Неизвестный ответ от сервера");
+    }
 }
 
 int main() {
-    ClientInfo client{"0.0.0.0", "AA:BB:CC:DD:EE:FF"};
+    std::srand(std::time(nullptr));
+    ClientInfo client{"0.0.0.0", "AA:BB:CC:DD:EE:" + std::to_string(std::rand() % 100)};
     int sequence = 0;
 
     try {
         std::cout << "Получение IP от DHCP сервера...\n";
-        client.ip = get_dhcp_ip(client.mac);
+        client.ip = dhcp_handshake(client.mac);
         std::cout << "Успешно получен IP: " << client.ip << "\n";
     } catch (const std::exception& e) {
         std::cout << "Ошибка DHCP: " << e.what() << ". Используется 0.0.0.0\n";
     }
 
-    std::cout << "Клиентский компьютер запущен\n"
+    std::cout << "\nDHCP клиент запущен\n"
               << "IP: " << client.ip << "\n"
               << "MAC: " << client.mac << "\n\n";
 
@@ -196,6 +207,6 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    std::cout << "Клиентский компьютер завершен!\n";
+    std::cout << "Клиент завершен!\n";
     return EXIT_SUCCESS;
 }

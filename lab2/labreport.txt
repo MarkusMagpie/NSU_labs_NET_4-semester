@@ -17,44 +17,36 @@
             который относится к DHCP. 
 
 Практика:
-1 DHCP-сервер
-    0 sudo wireshark 
-        начни захват dhcp пакетов для показа процесса назначения IP-адреса
-    1 терминал: 
-        sudo dhclient -r wlp0s20f3 - перед получением IP адреса нужно освободить тот который уже есть у клиента (DHCP Release)
-        ip a - определил интерфейс с состоянием UP
-        g++ dhcp_server.cpp -o dhcp_server -lpthread
-        sudo ./dhcp_server
-    2 терминал:
-        sudo dhclient -v -d wlp0s20f3 - запустил клиента DHCP на нужном интерфейсе
-            -v - вывод подробной информации
-            -d - не переходить в фоновый режим (удобно для отладки)
-    3 терминал:
-        ip a show wlp0s20f3 - проверяю что IP присвоен. В выводе должен появиться IP-адрес из пула сервера.
+1 dhcp_server2
+    0 терминал
+        sudo wireshark
+        dhcp 
+    1 терминал 
+        g++ dhcp_server2.cpp -o dhcp_server2
+        sudo ./dhcp_server2
+    2 терминал
+        g++ dhcp_client.cpp -o dhcp_client
+        sudo ./dhcp_client
+    3 терминал
+        g++ dhcp_client.cpp -o dhcp_client
+        sudo ./dhcp_client
 
-    вариант показа: сначала НЕ удалять IP адрес -> в вайршарке будет только Request и Ack; затем удалить -> Release; и затем уже делать DORA
-
-    пояснения к структуре DHCPPacket: https://support.huawei.com/enterprise/en/doc/EDOC1100174721/2b689419/dhcp
-
-    логика работы:
-        1) клиент отправляет DHCP Discover (широковещательный запрос)
-        2) в handleDiscover() проверяем packet.chaddr - MAC адрес клиента: если он новый - выделяем IP из пула, если уже есть - используем currentIP++
-           в этой же функции формируем DHCP Offer с предложенным адресом клиента
-           sendto отправляет offer по сокету клиенту
-        3) тут я показываю в вайршарке захваченные пакеты  
+    рассмотрю подробно логику работы dhcp сервера:
+        просто по комментариям dhcp_server2
+        ! не забудь про фоновую очистку по времени аренды !
 
 
 
-2 модернизация программы из 1 лабы ClientComputer2.cpp -> dhcp_client.cpp
-    программа осталась такой же только теперь client.ip получаем из новой функции get_dhcp_ip(client.mac)
-    0 sudo wireshark
-    1 терминал: 
-        g++ dhcp_server2.cpp -o dhcp_server -lpthread
-        sudo ./dhcp_server
-    2 терминал:
-        g++ dhcp_client.cpp -o client
-        sudo ./client 
+2 Модификация клиентской программы
+    добавлена функция dhcp_handshake и теперь IP адрес получаю от DHCP сервера!
 
-    логика работы функции get_dhcp_ip:
-        
+    0 терминал
+        sudo wireshark
+        udp.port==5000
+    1-3 без изменений
+
+    пояснения коментариями в функции dhcp_handshake
+    
+     
+
     
