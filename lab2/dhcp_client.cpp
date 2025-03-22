@@ -188,6 +188,7 @@ int main() {
             if (dest_ip == "exit" || dest_ip == "q") break;
 
             try {
+                // формируем адрес получателя (create_destination_address(dest_ip)) - создается структура sockaddr_in для целевого узла
                 auto dest_addr = create_destination_address(dest_ip);
                 send_ping(sock, dest_addr, client, sequence);
                 receive_response(sock);
