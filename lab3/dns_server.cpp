@@ -53,7 +53,7 @@ std::string processRequest(const std::string& request, std::map<std::string, std
         response = "ERROR: Неизвестная команда. Используйте REGISTER или QUERY";
     }
     
-    return response;
+    return response + "\n> ";
 }
 
 int createSocket() {
