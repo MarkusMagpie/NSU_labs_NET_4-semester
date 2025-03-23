@@ -171,9 +171,7 @@
                 пример в коде:
                     close(clientSocket);
 
-                https://www.c-cpp.ru/content/close-rtlclose
-
-        
+                https://www.c-cpp.ru/content/close-rtlclose 
 
     логика программы: 
         registerInDNS - регистрация в DNS 

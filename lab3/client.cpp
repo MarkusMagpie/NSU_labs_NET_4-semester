@@ -64,9 +64,9 @@ void runWebServer(const std::string& htmlContent, int port) {
                                 (sockaddr*)&clientAddr, 
                                 &clientLen);
         
-        // здесь формирую http ответ
+        // http ответ
         std::string response = 
-                            "HTTP/1.1 200 OK\r\n"           // статус ответа
+                            "HTTP/1.1 200 OK\r\n"           // строка статус 
                             "Content-Type: text/html\r\n"   // заголовок типа содержимого
                             "\r\n" +                        // конец заголовка 
                             htmlContent;                    // тело ответа
