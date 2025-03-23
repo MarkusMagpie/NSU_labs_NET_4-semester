@@ -51,10 +51,64 @@
 
 
 Практика:
-1 Разработка DNS-сервера
+1 Разработка DNS-сервера - dns_server.cpp
     Реализуйте DNS-сервер, который будет хранить записи о доменных именах и соответствующих им IP-адресах.
     DNS-сервер должен поддерживать регистрацию новых доменных имён от клиентов (узлов).
     Реализуйте механизм разрешения доменных имён в IP-адреса (DNS-запросы и ответы).
+
+    чтобы посмотреть какой процесс занимает порт: 
+        sudo lsof -i :5353
+    если есть процессы - завершить так:
+        sudo kill -9 <PID>
+
+    как запускать:
+    0 терминал
+        g++  dns_server.cpp -o dns_server
+        ./dns_server
+    1 терминал
+        sudo wireshark
+        udp.port = 5353
+    2 терминал
+        nc -u localhost 5353
+        команда регистрации:
+            REGISTER example.com 192.168.1.1
+        запрос на разрешение домена:
+            QUERY example.com
+
+    разбор кода - смотри комменты:
+        processRequest()
+        createSocket()
+        bindSocket()
+            setsockopt
+                int setsockopt(int s, int level, int optname, const void *optval, socklen_t optlen);  
+
+
+                https://www.opennet.ru/man.shtml?topic=setsockopt&category=2&russian=0
+
+            bind(sockfd, (sockaddr*)&servAddr, sizeof(servAddr))
+            bind - привязывает сокет к указанному адресу и порту
+        runServer()
+            recvfrom
+                int recvfrom(int s, void *buf, size_t len, int flags, struct sockaddr *from, socklen_t *fromlen);
+
+                https://www.opennet.ru/cgi-bin/opennet/man.cgi?topic=recvfrom&category=2
+
+            sendto
+                ssize_t sendto(int s, const void *msg, size_t len, int flags, const struct sockaddr *to, socklen_t tolen);
+
+                https://www.opennet.ru/man.shtml?topic=sendto&category=2&russian=0
+        main()
+
+    логика программы:
+        createSocket() - создаем UDP сокет
+        bindSocket() - привязываем к порту 
+        runServer() - бесконечный цикл:
+            принимается UDP-сообщение от клиента - recvfrom(). оно записывается в буфер.
+            Из полученной строки выделяется запрос, передаётся функции processRequest() для обработки.
+        processRequest() - определяет тип запроса и формирует респонс
+        runServer() - получил респонс и отправил - sendto() обратно клиенту по сокету
+
+
 
 2 Модификация клиентских узлов
     Каждый клиентский узел должен быть хостом с уникальной HTML-страницей
