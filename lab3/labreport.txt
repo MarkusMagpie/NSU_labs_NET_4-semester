@@ -66,7 +66,7 @@
     2 терминал
         nc -u localhost 5353
         команда регистрации:
-            REGISTER example.com 192.168.1.1
+            REGISTER example.com 192.168.1.1:8080
         запрос на разрешение домена:
             QUERY example.com
 
@@ -110,18 +110,19 @@
 
 
 
-2 Модификация клиентских узлов
+2 Модификация клиентских узлов - client.cpp
     Каждый клиентский узел должен быть хостом с уникальной HTML-страницей
 
     как запускать:
     0 терминал
-        g++  dns_server.cpp -o dns_server
+        g++ dns_server.cpp -o dns_server
         g++ -pthread -o client_node client.cpp
         ./dns_server
     1 терминал 
-        ./client_node 127.0.0.1 site1.com site1.html
-        ./client_node 127.0.0.1 site2.com site2.html
-    2 терминал 
+        ./client_node 127.0.0.1 site1.com site1.html 8080
+    2 терминал
+        ./client_node 127.0.0.1 site2.com site2.html 8081
+    3 терминал 
         nc -u localhost 5353
         QUERY site1.com
         QUERY site2.com
@@ -185,8 +186,54 @@
 
 
 
-3 Взаимодействие между узлами
+3 Взаимодействие между узлами - client.cpp
     С любого узла в сети должна быть возможность получить HTML-страницу с другого узла, обратившись к нему по доменному имени.
+
+    как запускать:
+    0 терминал
+        g++ dns_server.cpp -o dns_server
+        g++ -pthread -o client_node client.cpp
+        ./dns_server
+    1 терминал 
+        ./client_node 127.0.0.1 site1.com site1.html 8080
+    2 терминал 
+        ./client_node 127.0.0.1 site2.com site2.html 8081
+    1 терминал 
+        GET site1.com
+        GET site2.com
+        GET site54.com
+        GET asas
+        dsdfger
+    2 терминал 
+        GET site1.com
+        GET site2.com
+        GET site54.com
+        GET asas
+        dsdfger
+    можно открыть в опере
+        http://127.0.0.1:8080
+        http://127.0.0.1:8081
+    можно для проверки сайта использовать wget или curl
+        curl http://127.0.0.1:8080
+        curl http://127.0.0.1:8081
+
+    изменения в клиентсвком узле:
+        queryDNS - запрос IP у DNS-сервера
+        fetchHTML - получение HTML-страницы по IP
+        main - в основном потоке (после запуска веб-сервера в отдельном) запускаю интерфейс пользователя для 
+            получения HTML-страницы с другого узла
+        
+    проблема уникальности доменов (их адресов) - решена добавлением нового уникального порта в качесвте 5 параметра 
+        при запуске client executable
+        Пример: ./client_node 127.0.0.1 site1.com site1.html 8081
+
+        registerInDNS - теперь есть параметр port и регистрационный message теперь имеет вид: 
+            std::string message = "REGISTER " + domain + " " + clientIP + ":" + std::to_string(port);
+            этот message отправляется серверу.
+            Сервер ловит это сообщение в runServer и запускает функцию обработки сообщений - processRequest, 
+                где я также обновил логику работы команды REGISTER  
+
+
 
 4 Обнаружение DNS-сервера
     Реализуйте механизм, с помощью которого новый клиент может автоматически обнаружить DNS-сервер в сети.

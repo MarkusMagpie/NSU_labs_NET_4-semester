@@ -28,13 +28,26 @@ std::string processRequest(const std::string& request, std::map<std::string, std
     возвращает                      <ip>
     */
     if (command == "REGISTER") {
-        std::string domain, ip;
-        iss >> domain >> ip;
-        if (domain.empty() || ip.empty()) {
-            response = "ERROR: Неверный формат. Используйте: REGISTER <domain> <ip>";
+        std::string domain, ip_port;
+        iss >> domain >> ip_port;
+        size_t pos = ip_port.find(":");
+        if (pos == std::string::npos) {
+            response = "ERROR: Неверный формат. Используйте: REGISTER <domain> <ip:port>";
         } else {
-            dnsRecords[domain] = ip;
-            response = "OK: " + domain + " зарегистрирован с IP " + ip;
+            std::string ip = ip_port.substr(0, pos);
+            int port;
+            try {
+                port = std::stoi(ip_port.substr(pos + 1));
+            } catch (const std::exception& e) {
+                response = "ERROR: Неверный формат порта.";
+            }
+            if (domain.empty() || ip.empty()) {
+                response = "ERROR: Неверный формат. Используйте: REGISTER <domain> <ip:port>";
+            } else {
+                dnsRecords[domain] = ip + ":" + std::to_string(port);
+                std::cout << domain << " зарегистрирован с IP " << ip << " и портом " << std::to_string(port) << std::endl;
+                response = "OK: " + domain + " зарегистрирован с IP " + ip + " и портом " + std::to_string(port);
+            }
         }
     } else if (command == "QUERY") {
         std::string domain;
