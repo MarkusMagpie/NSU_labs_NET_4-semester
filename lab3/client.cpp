@@ -15,20 +15,37 @@
 отправляю его DNS серверу
 закрываю сокет (соединение между клиентом и DNS-сервером)
 */
-void registerInDNS(const std::string& dnsServerIP, 
-                  const std::string& domain, 
-                  const std::string& clientIP, 
-                  int port) {
+void registerInDNS(std::string& dnsServerInfo, 
+                  std::string& domain, 
+                  std::string& clientIP, 
+                  int clientPort) {
+    size_t space = dnsServerInfo.find(' ');
+    if(space == std::string::npos) {
+        std::cout << "ошибка при парсинге информации о DNS 1\n";
+        return;
+    }
+
+    size_t colon = dnsServerInfo.find(':', space);
+    if(colon == std::string::npos) {
+        std::cout << "ошибка при парсинге информации о DNS 2\n";
+        return;
+    }
+    
+    std::string ip = dnsServerInfo.substr(space + 1, colon - space - 1);
+    int dnsPort = std::stoi(dnsServerInfo.substr(colon + 1));
+
+    // std::cout << "ip: " << ip << " port: " << dnsPort << std::endl;
+    
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
     // настройка адреса DNS сервера
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET; // IPv4
-    serverAddr.sin_port = htons(5353); // порт DNS сервера
+    serverAddr.sin_port = htons(dnsPort);
     // https://www.opennet.ru/man.shtml?topic=inet_pton&category=3&russian=0
-    inet_pton(AF_INET, dnsServerIP.c_str(), &serverAddr.sin_addr); // преобразование IP-адреса в бинарный формат
+    inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr); // преобразование IP-адреса в бинарный формат
 
-    std::string message = "REGISTER " + domain + " " + clientIP + ":" + std::to_string(port);
+    std::string message = "REGISTER " + domain + " " + clientIP + ":" + std::to_string(clientPort);
     sendto(sock, message.c_str(), message.size(), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
     
     close(sock);
@@ -75,7 +92,7 @@ std::string queryDNS(const std::string& dnsServerIP, std::string& domain) {
     3 отправка HTTP GET-запроса                       (!!! в тетради покажи как формирует + что в гет запросе нету тела запроса)
     4 принимание и возвращени ответа
 */
-std::string getHTML(const std::string& ip_and_port) {
+std::string getHTML(std::string& ip_and_port) {
     // 1
     size_t colon_pos = ip_and_port.find(':');
     if(colon_pos == std::string::npos) {
@@ -112,6 +129,59 @@ std::string getHTML(const std::string& ip_and_port) {
     
     buffer[n] = '\0';
     return std::string(buffer);
+}
+
+/*
+принцип работы:
+    1 создание UDP-сокета для отправки/приема широковещательных пакетов
+    2 разрешение отправки широковещательных пакетов через сокет sock
+    3 формирование и отправка запроса "DISCOVER" 
+    4 настройка таймаута на прием ответа
+    5 прием ответа от DNS-сервера
+*/
+std::string discoverDNSServer() {
+    // 1
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    
+    // 2
+    int broadcast = 1;
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+
+    /*
+    настройка адреса для широковещательной рассылки:
+        семейство адресов: IPv4 (AF_INET)
+        порт DNS-сервера: 5353 (мой порт сервера dns_server.cpp - global variable PORT)
+        адрес рассылки: INADDR_BROADCAST (255.255.255.255)
+    */
+    sockaddr_in broadcastAddr{};
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_port = htons(5353);
+    broadcastAddr.sin_addr.s_addr = INADDR_BROADCAST;
+
+    // 3
+    std::string message = "DISCOVER";
+    sendto(sock, message.c_str(), message.size(), 0, (sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
+
+    // 4
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    // 5
+    char buffer[1024];
+    sockaddr_in responseAddr{};
+    socklen_t addrLen = sizeof(responseAddr);
+    ssize_t n = recvfrom(sock, buffer, sizeof(buffer) - 1, 0, (sockaddr*)&responseAddr, &addrLen); // sizeof(buffer) - 1 для нулевого символа
+    
+    close(sock);
+
+    if(n > 0) {
+        buffer[n] = '\0';
+        return std::string(buffer);
+    }
+
+    return "";
 }
 
 /*
@@ -157,21 +227,29 @@ void runWebServer(const std::string& htmlContent, int port) {
 }
 
 int main(int argc, char* argv[]) {
-    if(argc != 5) {
-        std::cout << "параметры!!! пример: ./client 1.4.8.8 example.com index.html 8080" << std::endl;
+    if(argc != 4) {
+        std::cout << "параметры!!! пример: ./client example.com index.html 8080" << std::endl;
+        return 0;
+    }
+
+    // 0 - обнаружение DNS-сервера (задача 3.4)
+    std::cout << "Поиск DNS-сервера в сети...\n";
+    std::string dnsInfo = discoverDNSServer();
+    
+    if(dnsInfo.empty() || dnsInfo.find("DNS_SERVER") == std::string::npos) {
+        std::cout << "Ошибка: DNS-сервер не найден!\n";
         return 0;
     }
 
     // 1 - регистрация в DNS
-    std::string dnsIP = argv[1];
-    std::string domain = argv[2];
+    std::string domain = argv[1];
     std::string clientIP = "127.0.0.1";
-    int port = (argc >= 5) ? std::stoi(argv[4]) : 8080;
+    int port = std::stoi(argv[3]);
 
-    registerInDNS(dnsIP, domain, clientIP, port);
+    registerInDNS(dnsInfo, domain, clientIP, port);
 
     // 2 - загрузка HTML-контента
-    std::string filename = argv[3];
+    std::string filename = argv[2];
     std::ifstream file(filename);
 
     // если файл не существует - создаем базовый шаблон

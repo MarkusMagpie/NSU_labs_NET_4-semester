@@ -14,7 +14,7 @@ constexpr int BUFFER_SIZE = 1024;
 
 // принимает строку запроса и ссылку на контейнер с зарегистрированными доменами и IP-адресами
 // возвращает строку которая будет ответом клиенту
-std::string processRequest(const std::string& request, std::map<std::string, std::string>& dnsRecords) {
+std::string processRequest(const std::string& request, std::map<std::string, std::string>& dnsRecords, int sockfd) {
     std::istringstream iss(request);
     std::string command;
     iss >> command; // извлекаю команду из запроса request
@@ -26,6 +26,9 @@ std::string processRequest(const std::string& request, std::map<std::string, std
 
     обработка команды запроса:      QUERY <domain>
     возвращает                      <ip>
+
+    обработка команды обнаружения:  DISCOVER
+    возвращает                      DNS_SERVER <ip>:<port>
     */
     if (command == "REGISTER") {
         std::string domain, ip_port;
@@ -61,6 +64,19 @@ std::string processRequest(const std::string& request, std::map<std::string, std
             } else {
                 response = "NOT FOUND";
             }
+        }
+    } else if (command == "DISCOVER") {
+        sockaddr_in serverAddr{};
+        socklen_t addrLen = sizeof(serverAddr);
+        
+        // получаем информацию о сокете сервера (пишем в serverAddr)
+        if(getsockname(sockfd, (sockaddr*)&serverAddr, &addrLen) < 0) {
+            response = "ERROR: Не удалось получить информацию о сервере";
+        } else {
+            char myIP[INET_ADDRSTRLEN]; // буфер для строкового представления ip (здесь лежит IP-адрес сервера после inet_ntop)
+            // преобразуем бинарный формат ip-адреса (из serverAddr.sin_addr) в читаемую строку
+            inet_ntop(AF_INET, &(serverAddr.sin_addr), myIP, INET_ADDRSTRLEN);
+            response = "DNS_SERVER " + std::string(myIP) + ":" + std::to_string(PORT);
         }
     } else {
         response = "ERROR: Неизвестная команда. Используйте REGISTER или QUERY";
@@ -115,6 +131,17 @@ bool bindSocket(int sockfd) {
 
 // основной цикл сервера: приём и обработка запросов
 void runServer(int sockfd, std::map<std::string, std::string>& dnsRecords) {
+    int broadcast = 1;
+
+    /*
+    sockfd:             дескриптор сокета, который настраиваем
+    SOL_SOCKET:         уровень настройки (то есть это уровень сокета)
+    SO_BROADCAST:       опция для разрешения широковещания
+    &broadcast:         указатель на само значение опции
+    sizeof(broadcast):  размер переменной с значением
+    */
+    setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+
     while (true) {
         char buffer[BUFFER_SIZE];
         memset(buffer, 0, BUFFER_SIZE); // очистка 
@@ -143,7 +170,7 @@ void runServer(int sockfd, std::map<std::string, std::string>& dnsRecords) {
         buffer[recvLen] = '\0'; // гарант завершения строки
 
         std::string request(buffer);
-        std::string response = processRequest(request, dnsRecords);
+        std::string response = processRequest(request, dnsRecords, sockfd);
 
         /*
         sendto() отправляет сообщение клиенту через сокет: 
@@ -166,7 +193,7 @@ void runServer(int sockfd, std::map<std::string, std::string>& dnsRecords) {
 }
 
 int main() {
-    // ассоциативный контейнер пар (домен, IP)
+    // ассоциативный контейнер пар (домен, IP:порт)
     std::map<std::string, std::string> dnsRecords;
 
     int sockfd = createSocket();

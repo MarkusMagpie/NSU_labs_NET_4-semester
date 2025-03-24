@@ -116,12 +116,12 @@
     как запускать:
     0 терминал
         g++ dns_server.cpp -o dns_server
-        g++ -pthread -o client_node client.cpp
+        g++ -o client_node client.cpp
         ./dns_server
     1 терминал 
-        ./client_node 127.0.0.1 site1.com site1.html 8080
+        ./client_node site1.com site1.html 8080
     2 терминал
-        ./client_node 127.0.0.1 site2.com site2.html 8081
+        ./client_node site2.com site2.html 8081
     3 терминал 
         nc -u localhost 5353
         QUERY site1.com
@@ -192,12 +192,12 @@
     как запускать:
     0 терминал
         g++ dns_server.cpp -o dns_server
-        g++ -pthread -o client_node client.cpp
+        g++ -o client_node client.cpp
         ./dns_server
     1 терминал 
-        ./client_node 127.0.0.1 site1.com site1.html 8080
+        ./client_node site1.com site1.html 8080
     2 терминал 
-        ./client_node 127.0.0.1 site2.com site2.html 8081
+        ./client_node site2.com site2.html 8081
     1 терминал 
         GET site1.com
         GET site2.com
@@ -237,3 +237,49 @@
 
 4 Обнаружение DNS-сервера
     Реализуйте механизм, с помощью которого новый клиент может автоматически обнаружить DNS-сервер в сети.
+
+    проблема: 
+        в функции регистрации клиента в DNS сервере - registerInDNS, первый параметр - dnsServerIP. 
+            А нас просят его обнаружить, то есть IP мы не знаем.
+
+    изменения:
+        клиент:
+            registerInDNS 
+                изменил 1 параметр на dnsServerInfo, который затем парсится для получения серверного IP и порта
+            discoverDNSServer
+            main
+                опять вместе с executable 3 параметра, так как IP сервера не указываем больше
+                теперь перед регистрацией клиента в dns обнаруживаем dns ip и порт
+        сервер:
+            processRequest
+                добавил обработку команды DISCOVER
+            runServer
+                разрешил сокету принимать широковещательные пакеты
+
+    как запускать:
+    0 терминал
+        g++ dns_server.cpp -o dns_server
+        g++ -o client_node client.cpp
+        ./dns_server
+    1 терминал 
+        ./client_node site1.com site1.html 8080
+    2 терминал 
+        ./client_node site2.com site2.html 8081
+    1 терминал 
+        GET site1.com
+        GET site2.com
+        GET site54.com
+        GET asas
+        dsdfger
+    2 терминал 
+        GET site1.com
+        GET site2.com
+        GET site54.com
+        GET asas
+        dsdfger
+    можно открыть в опере
+        http://127.0.0.1:8080
+        http://127.0.0.1:8081
+    можно для проверки сайта использовать wget или curl
+        curl http://127.0.0.1:8080
+        curl http://127.0.0.1:8081
