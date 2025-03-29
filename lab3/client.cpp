@@ -7,13 +7,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-// регистрация в DNS-сервере
+// регистрация в DNS-сервере - отправка сообщения REGISTER серверу 
 /*
-делаю сокет UDP для отправки запроса  
-заполняю структуру sockaddr_in чтобы привязать сокет к DNS-серверу
-формирую сообщение вида REGISTER домен ip 
-отправляю его DNS серверу
-закрываю сокет (соединение между клиентом и DNS-сервером)
+    1 делаю сокет UDP для отправки запроса  
+    2 заполняю структуру sockaddr_in чтобы привязать сокет к DNS-серверу
+    3 формирую сообщение вида REGISTER домен ip:порт
+    4 отправляю его DNS серверу
+    5 закрываю сокет (соединение между клиентом и DNS-сервером)
 */
 void registerInDNS(std::string& dnsServerInfo, 
                   std::string& domain, 
@@ -36,32 +36,44 @@ void registerInDNS(std::string& dnsServerInfo,
 
     // std::cout << "ip: " << ip << " port: " << dnsPort << std::endl;
     
+    // 1
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-    // настройка адреса DNS сервера
+    // 2 настройка адреса DNS сервера
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET; // IPv4
     serverAddr.sin_port = htons(dnsPort);
     // https://www.opennet.ru/man.shtml?topic=inet_pton&category=3&russian=0
     inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr); // преобразование IP-адреса в бинарный формат
 
+    // 3
     std::string message = "REGISTER " + domain + " " + clientIP + ":" + std::to_string(clientPort);
+    // 4
     sendto(sock, message.c_str(), message.size(), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
-    
+    // 5
     close(sock);
 }
 
+// запрос в DNS-сервер на получение IP-адреса - отправка сообщения QUERY серверу
 /*
 принцип работы
     1 создание UDP-сокета для общения с DNS-сервером
-    2 формирование запроса в формате "QUERY <доменное_имя>" (доменное_имя получаю из GET запроса)
-    3 отправка запроса на DNS-сервер
-    4 ожидание и обрабатка ответа
+    2 подготовка структуры адреса для подключения к серверу
+    3 формирование запроса в формате "QUERY <доменное_имя>" (доменное_имя получаю из GET запроса)
+    4 отправка запроса на DNS-сервер
+    5 ожидание и обрабатка ответа
 */
 std::string queryDNS(const std::string& dnsServerIP, std::string& domain) {
     // 1
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     
+    // 2
+    /*
+    создаем структуру sockaddr_in и инициализируем нулевыми значениями в полях
+    установил адресное семейство IPv4
+    преобразую 5353 из порядка байтов хоста в сетевой порядок и сохраняю в поле для портов 
+    преобразую IP-адрес (dnsServerIP.c_str()) в формате AF_INET(IPv4) в числовой формат и сохраняю в поле для IP-адреса (serverAddr.sin_addr)
+    */
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(5353);
@@ -122,7 +134,7 @@ std::string getHTML(std::string& ip_and_port) {
 
     // 4
     char buffer[4096];
-    ssize_t n = recv(sock, buffer, sizeof(buffer)-1, 0);
+    ssize_t n = recv(sock, buffer, sizeof(buffer) - 1, 0);
     close(sock);
 
     if(n <= 0) return "";
@@ -214,12 +226,12 @@ void runWebServer(const std::string& htmlContent, int port) {
                                 (sockaddr*)&clientAddr, 
                                 &clientLen);
         
-        // http ответ
+        // http ответ - ОТКРОЙ ТЕТРАДЬ - пример Созыкина
         std::string response = 
-                            "HTTP/1.1 200 OK\r\n"           // строка статус 
-                            "Content-Type: text/html\r\n"   // заголовок типа содержимого
-                            "\r\n" +                        // конец заголовка 
-                            htmlContent;                    // тело ответа
+                            "HTTP/1.1 200 OK\r\n"                           // строка статус 
+                            "Content-Type: text/html; charset=utf-8\r\n"    // заголовок типа содержимого
+                            "\r\n" +                                        // пустая строка
+                            htmlContent;                                    // тело ответа
         
         send(clientSocket, response.c_str(), response.size(), 0); // ответ отправляется клиенту
         close(clientSocket); 
@@ -240,6 +252,8 @@ int main(int argc, char* argv[]) {
         std::cout << "Ошибка: DNS-сервер не найден!\n";
         return 0;
     }
+
+    std::cout << "Полученный DNS-сервер: " << dnsInfo << std::endl;
 
     // 1 - регистрация в DNS
     std::string domain = argv[1];
