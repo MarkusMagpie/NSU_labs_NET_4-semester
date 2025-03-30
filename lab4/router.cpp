@@ -8,7 +8,7 @@
 #include <unistd.h> // close
 
 const int ROUTER_PORT = 5000;
-const std::string PUBLIC_IP = "127.0.0.1";
+const std::string PUBLIC_IP = "203.0.113.1";
 const std::vector<std::string> LOCAL_NETWORKS = {"192.168.", "10.", "172.16."}; // RFC 1918
 
 struct ClientInfo {
@@ -39,6 +39,22 @@ int createSocket() {
     }
 
     return sock;
+}
+
+bool bindSocket(int sock) {
+    // настройка адреса сервера
+    sockaddr_in server_addr{}; // стркутура, описывает сокет для работы с протоколами IPv4
+    server_addr.sin_family = AF_INET; // IP адрес к которому будет привязан сокет (IPv4)
+    server_addr.sin_port = htons(ROUTER_PORT); // номер порта к которому будет привязан сокет
+    server_addr.sin_addr.s_addr = INADDR_ANY; // привязка к любому IP-адресу
+
+    // привязка сокета к адресу server_addr
+    if (bind(sock, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        std::cout << "ERROR ошибка привязки сокета" << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 bool isLocalIP(const std::string& ip) {
@@ -101,7 +117,7 @@ void handlePacket(int sock, sockaddr_in client_addr, char* buffer, ssize_t len) 
             clients[mac] = {client_ip, mac, client_addr, time(nullptr)};
             // std::cout << "Обновлен клиент: MAC: " << mac << "; IP: " << client_ip << std::endl;
             std::cout << "Данные клиента добавлены/обновлены в таблице клиентов по ключу: " << mac <<
-                        " ; client_ip: " << client_ip << std::endl;
+                        " - " << client_ip << std::endl;
         }
 
         // 3 
@@ -127,7 +143,23 @@ void handlePacket(int sock, sockaddr_in client_addr, char* buffer, ssize_t len) 
             target_port = static_cast<uint16_t>(std::stoi(full.substr(colon + 1)));
         }
 
-        std::cout << "Целевой IP: " << target_ip << " Порт: " << target_port << std::endl;
+        // проверка обратного ответа - если целевой IP публичный, то заменяем его на внутренний
+        if (target_ip == PUBLIC_IP) {
+            std::cout << "Целевой IP - публичный, заменяем его на внутренний" << std::endl;
+            std::lock_guard<std::mutex> nat_lock(nat_mutex);
+            // поиск внутреннего IP по публичному
+            for (const auto& [internal_ip, public_ip] : nat_table) {
+                if (public_ip == client_ip) { 
+                    // здесь замена публичного IP из исходного пакета на внутренний
+                    size_t pos = message.find(PUBLIC_IP);
+                    message.replace(pos, PUBLIC_IP.length(), internal_ip);
+                    target_ip = internal_ip;
+                    break;
+                }
+            }
+        }
+
+        std::cout << "Целевой IP: " << target_ip << "; целевый порт: " << target_port << std::endl;
 
         // 4 
         if (!isLocalIP(target_ip)) {
@@ -143,7 +175,7 @@ void handlePacket(int sock, sockaddr_in client_addr, char* buffer, ssize_t len) 
             nat_table[original_ip] = PUBLIC_IP; // добавил ключ-значение в таблицу NAT
             
             std::cout << "NAT трансляция " << original_ip << " -> " << PUBLIC_IP 
-                      << " для цели " << target_ip << std::endl;
+                      << " для внешней цели " << target_ip << std::endl;
             std::cout << "Содержимое пакета после NAT трансляции: " << message << std::endl;
         }
 
@@ -166,8 +198,10 @@ void handlePacket(int sock, sockaddr_in client_addr, char* buffer, ssize_t len) 
 
         // 6 
         if (found) {
-            std::cout << "Отправка пакета к " << target_ip << " (MAC: " << target.mac << ")" << std::endl;
-            std::cout << "Содержимое пакета: " << message << std::endl;
+            std::cout << "Отправка пакета к целевому клиенту " << target_ip 
+                        << " (MAC: " << target.mac << ")" << " размером " << message.size() << " байт" << std::endl;
+            
+            std::cout << "Содержимое пакета перед отправкой: " << message << std::endl;
             
             sockaddr_in target_addr = target.address;
             target_addr.sin_port = htons(target_port); // устанавливаем нужный порт target_port в адрес получателя
@@ -227,17 +261,9 @@ void runRouter(int sock) {
 int main() {
     int sock = createSocket();
 
-    // настройка адреса сервера
-    sockaddr_in server_addr{}; // стркутура, описывает сокет для работы с протоколами IPv4
-    server_addr.sin_family = AF_INET; // IP адрес к которому будет привязан сокет (IPv4)
-    server_addr.sin_port = htons(ROUTER_PORT); // номер порта к которому будет привязан сокет
-    server_addr.sin_addr.s_addr = INADDR_ANY; // привязка к любому IP-адресу
-
-    // привязка сокета к адресу server_addr
-    if (bind(sock, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        std::cout << "ERROR ошибка привязки сокета" << std::endl;
+    if (!bindSocket(sock)) {
         close(sock);
-        return 1;
+        return 0;
     }
 
     runRouter(sock);
