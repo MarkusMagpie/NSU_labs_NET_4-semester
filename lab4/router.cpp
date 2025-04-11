@@ -149,11 +149,12 @@ void handlePacket(int sock, sockaddr_in client_addr, char* buffer, ssize_t len) 
             std::lock_guard<std::mutex> nat_lock(nat_mutex);
             // поиск внутреннего IP по публичному
             for (const auto& [internal_ip, public_ip] : nat_table) {
+                size_t pos = message.find(PUBLIC_IP);
                 if (public_ip == client_ip) { 
                     // здесь замена публичного IP из исходного пакета на внутренний
-                    size_t pos = message.find(PUBLIC_IP);
                     message.replace(pos, PUBLIC_IP.length(), internal_ip);
                     target_ip = internal_ip;
+                    std::cout << "Обратная NAT трансляция: " << PUBLIC_IP << " -> " << internal_ip << std::endl;
                     break;
                 }
             }
@@ -173,6 +174,9 @@ void handlePacket(int sock, sockaddr_in client_addr, char* buffer, ssize_t len) 
             // внутренний IP в message с указателя ip_pos -> публичный IP PUBLIC_IP
             message.replace(ip_pos, original_ip.length(), PUBLIC_IP);
             nat_table[original_ip] = PUBLIC_IP; // добавил ключ-значение в таблицу NAT
+
+            // перенаправляем пакет на localhost для теста (вместо реального 8.8.8.8)
+            // target_ip = "127.0.0.1"; 
             
             std::cout << "NAT трансляция " << original_ip << " -> " << PUBLIC_IP 
                       << " для внешней цели " << target_ip << std::endl;
