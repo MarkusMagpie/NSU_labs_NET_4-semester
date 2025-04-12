@@ -267,7 +267,7 @@ int main() {
 
     if (!bindSocket(sock)) {
         close(sock);
-        return 0;
+        return 1;
     }
 
     runRouter(sock);
