@@ -1,0 +1,141 @@
+Теория: 
+    Docker — это программная платформа для разработки, доставки и запуска контейнерных приложений. 
+    Он позволяет создавать контейнеры, автоматизировать их запуск и развертывание, управляет жизненным циклом.
+
+    Контейнеризация — это способ упаковки приложения и всех его зависимостей в один образ, 
+    который запускается в изолированной среде, не влияющей на основную операционную систему.
+
+    Приколы: 
+        Каждый контейнер работает изолированно от других и хостовой системы.
+        Контейнеры не виртуализируют железо (как VirtualBox), а используют ядро хоста, что делает их быстрыми.
+        Образы Docker (шаблоны контейнеров) работают одинаково на Linux, Windows, macOS и тд.
+
+    https://blog.skillfactory.ru/glossary/docker/#:~:text=Docker%20—%20это%20программная%20платформа%20для,контейнеров%20на%20одной%20хост-машине.
+
+
+
+Способ с контейнерами:
+    1 развернуть 3 сервиса, в качестве образа можно взять например debian:12-slim.
+    2 настроить две сети net1 и net2
+    3 Задать первому клиенту адрес из net1, 
+        роутеру адреса из net1 и net2, 
+        второму клиенту адреса из net2 и default (сеть для доступа в интернет)
+    4 Настройте маршрутизацию на клиентах
+    5 Включите форвардинг на роутере
+    6 Дополнительно: раздать интернет всем через второго клиента
+        Настройте форвардинг на втором клиенте (аналогично с роутером)
+        Настроить SNAT на втором клиенте
+        На первом клиенте и роутере прописать маршрут по умолчанию
+
+
+
+1 создаю 2 docker сети и настраиваю их диапазоны:
+    net1 с диапазоном адресов 172.20.0.0/24 (адреса от 172.20.0.1 до 172.20.0.254)
+        /24 - первые 24 из 32 бит выделены под идентификатор сети, а оставшиеся 8 бит — под хосты, 
+            то есть имеем маску подсети: 255.255.255.0
+            отсюда и диапозон: 172.20.0.0 - начальный адрес, а от 172.20.0.1 до 172.20.0.254 - доступные хосты
+        итого: в net1 может быть до 254 контейнеров
+    net2 с диапазоном 172.30.0.0/24
+
+    docker network create --subnet=172.20.0.0/24 net1
+    docker network inspect net1
+
+    в инспекте увижу что:
+        подсеть/subnet: 172.20.0.0/24 - подтверждает, что сеть создана с правильным диапазоном адресов
+        тип сети: bridge - стандартный драйвер Docker для изолированных сетей
+        также могу увидеть контейнер client1 в сети net1: его IP-адрес: 172.20.0.10
+    
+    docker network create --subnet=172.30.0.0/24 net2
+    docker network inspect net2
+
+    docker network create: https://docs.docker.com/reference/cli/docker/network/create/
+        docker network create [OPTIONS] NETWORK
+            --subnet Subnet in CIDR format that represents a network segment
+
+
+
+2 запуск контейнеров
+    КОМАНДЫ:
+        docker run -dit --name client1 --cap-add=NET_ADMIN --network net1 --ip 172.20.0.10 debian:12-slim
+        docker ps -a | grep client1
+
+        docker run -dit --name router --privileged --network net1 --ip 172.20.0.2 debian:12-slim
+        docker network connect --ip 172.30.0.2 net2 router
+        docker ps -a | grep router
+
+        docker run -dit --name client2 --cap-add=NET_ADMIN --network net2 --ip 172.30.0.10 debian:12-slim
+        docker network connect bridge client2
+        docker ps -a | grep client2
+
+    Задать первому клиенту адрес из net1:
+        docker run -dit --name client1 --cap-add=NET_ADMIN --network net1 --ip 172.20.0.10 debian:12-slim
+            docker run - запускает контейнер
+            -dit - флаги:
+                d - запуск в фоне (detached)
+                i - интерактивный режим
+                t - эмуляция терминала
+            --name - задает имя контейнера
+            --network - подключает к указанной сети
+            --ip - статический IP-адрес (работает только в пользовательских сетях)
+            debian:12-slim - образ для контейнера
+        docker ps -a | grep client1 
+            docker ps -a - показывает все контейнеры (включая остановленные)
+            grep client1 - фильтрует вывод, чтобы найти контейнер client1
+
+    Задать роутеру адреса из net1 и net2
+    docker run -dit --name router --priveleged --network net1 --ip 172.20.0.2 debian:12-slim
+        имя контейнера - router
+        IP-адрес в net1 - 172.20.0.2
+    docker network connect --ip 172.30.0.2 net2 router
+        добавляет контейнер router в net2
+        --ip 172.30.0.2 - IP-адрес в сети net2
+        docker network connect: https://docs.docker.com/reference/cli/docker/network/connect/
+            docker network connect — добавляет контейнер в дополнительную сеть 
+
+    Задать второму клиенту адреса из net2 и доступ в интернет:
+        docker run -dit --name client2 --network net2 --ip 172.30.0.10 debian:12-slim
+        docker network connect bridge client2
+
+    ИТОГО: выполнив команды docker network inspect <имя сети: net1 или net2> увидим контейнеры в ней:
+        net1: 172.20.0.10 - client1 и 172.20.0.2 - router
+        net2: 172.30.0.2 - router и 172.30.0.10 - client2
+
+
+
+3 настройка внутри контейнеров
+    терминал 1 - контейнер 1 (client1)
+        подключаемся к контейнеру client1 и запускает в нем bash:
+            docker exec -it client1 bash
+
+        внутри bash контейнера client 1 пишу следующее: 
+            apt update && apt install -y iproute2   
+            ip route add default via 172.20.0.1
+
+            обновляем пакеты и устанавливаем утилиты для работы с сетью
+            добавляет маршрут по умолчанию через роутер (IP роутера в net1)
+            
+    терминал 2 - роутер
+        ЗАДАЧА: Включите форвардинг на роутере
+            docker exec -it router bash
+
+            echo 1 > /proc/sys/net/ipv4/ip_forward
+                включение IP-форвардинга (маршрутизации) в Linux
+                взял отсюда: https://linuxconfig.org/how-to-turn-on-off-ip-forwarding-in-linux
+                ПРОВЕРКА: cat /proc/sys/net/ipv4/ip_forward
+
+
+
+4 пример сессии для контейнера client1
+    docker exec -it client1 bash
+    ping 127.20.0.1
+    exit
+
+    изначально ловил ошибку: bash: ping: command not found
+    решение: https://stackoverflow.com/questions/39901311/docker-ubuntu-bash-ping-command-not-found
+    apt-get update -y
+    apt-get install -y iputils-ping
+
+5 пример сессии для контейнера client2 - проыеряю доступ в интернет:
+    docker exec -it client2 bash
+    ping 8.8.8.8
+    exit
