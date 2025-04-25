@@ -12,6 +12,10 @@
 
     https://blog.skillfactory.ru/glossary/docker/#:~:text=Docker%20—%20это%20программная%20платформа%20для,контейнеров%20на%20одной%20хост-машине.
 
+    Bridge-сеть в Docker - виртуальная сеть, которая позволяет контейнерам общаться между собой и с внешним миром (Интернет) через хосты.
+        Контейнеры, подключенные к одной bridge-сети, могут общаться друг с другом по IP-адресам или именам.
+        При этом контейнеры в разных bridge сетях не видят друг друга 
+
 
 
 Способ с контейнерами:
@@ -58,6 +62,7 @@
     КОМАНДЫ:
         docker run -dit --name client1 --cap-add=NET_ADMIN --network net1 --ip 172.20.0.10 debian:12-slim
         docker ps -a | grep client1
+        2 вариант: docker container ls -a | grep client1
 
         docker run -dit --name router --privileged --network net1 --ip 172.20.0.2 debian:12-slim
         docker network connect --ip 172.30.0.2 net2 router
@@ -69,14 +74,14 @@
 
     Задать первому клиенту адрес из net1:
         docker run -dit --name client1 --cap-add=NET_ADMIN --network net1 --ip 172.20.0.10 debian:12-slim
-            docker run - запускает контейнер
+            docker run - создает и запускает новый контейнер
             -dit - флаги:
                 d - запуск в фоне (detached)
                 i - интерактивный режим
                 t - эмуляция терминала
             --name - задает имя контейнера
-            --network - подключает к указанной сети
-            --ip - статический IP-адрес (работает только в пользовательских сетях)
+            --network - подключает к сети net1 
+            --ip - назначаю статический IP-адрес в сети net1
             debian:12-slim - образ для контейнера
         docker ps -a | grep client1 
             docker ps -a - показывает все контейнеры (включая остановленные)
@@ -87,14 +92,22 @@
         имя контейнера - router
         IP-адрес в net1 - 172.20.0.2
     docker network connect --ip 172.30.0.2 net2 router
-        добавляет контейнер router в net2
-        --ip 172.30.0.2 - IP-адрес в сети net2
+        --ip 172.30.0.2 - IP-адрес в сети net2 (я задаю статический IP адрес - он находится в подсети net2)
         docker network connect: https://docs.docker.com/reference/cli/docker/network/connect/
-            docker network connect — добавляет контейнер в дополнительную сеть 
+            docker network connect — добавляет контейнер router в сеть net2 
 
-    Задать второму клиенту адреса из net2 и доступ в интернет:
+    Задать второму клиенту адрес из net2 и доступ в интернет:
         docker run -dit --name client2 --network net2 --ip 172.30.0.10 debian:12-slim
         docker network connect bridge client2
+            предоставил контейнеру client2 доступ в интернет через NAT
+
+            парамеьры:
+                docker network connect - добавляет существующий контейнер в сеть
+                bridge - имя дефолтной Docker сети - доступ в интернет через NAT
+                client2	- это мой целевой контейнер
+
+            ВАЖНО: контейнер client2 уже подключен к сети net2. Подключение к сети bridge добавляет контейнеру client2 второй
+                сетевой интерфейс чтобы дать доступ в интернет.
 
     ИТОГО: выполнив команды docker network inspect <имя сети: net1 или net2> увидим контейнеры в ней:
         net1: 172.20.0.10 - client1 и 172.20.0.2 - router
@@ -135,7 +148,16 @@
     apt-get update -y
     apt-get install -y iputils-ping
 
+
+
 5 пример сессии для контейнера client2 - проыеряю доступ в интернет:
     docker exec -it client2 bash
     ping 8.8.8.8
     exit
+
+
+
+чтобы перевести контейнеры в состояние "Up": 
+    docker start router client1 client2
+    проверка: 
+        docker container ls -a
