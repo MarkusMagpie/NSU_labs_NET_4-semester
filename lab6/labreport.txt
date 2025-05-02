@@ -6,20 +6,38 @@
         масштабируемость - можно добавлять новые серверы и тогда справляться с большим числом запросов
         отказоустойчивость - если один сервер вышел из строя, то другие берут на себя его задачи.
 
+    ХАкластер(High Availability cluster) - кластер высокой доступности. 
+        Это кластер (группа серверов), спроектированный в соответствии с методиками обеспечения высокой доступности и 
+        гарантирующий минимальное время простоя за счёт аппаратной избыточности. 
+        Без кластеризации сбой сервера приводит к тому, что поддерживаемые им приложения или сетевые сервисы оказываются
+        недоступны до восстановления его работоспособности. 
+        Отказоустойчивая кластеризация исправляет эту ситуацию, перезапуская приложения на других узлах кластера без 
+        вмешательства администратора.
 
+        описание: https://en.wikipedia.org/wiki/High-availability_cluster
 
     HAProxy (High Availability Proxy) - балансировщик нагрузки, управляет распределением запросов между серверами в кластере.
 
-    Как работает? HAProxy принимает входящие запросы (HTTP/TCP запросы к какому-то веб-сайту) и направляет их на серверы в 
-        кластере, используя разные  алгоритмы:
-            Round Robin - поочерёдно каждому серверу
-            Least Connections - серверу с наименьшим числом активных подключений
-            IP Hash - привязка клиента к конкретному серверу
-    
-    Наглядный пример: 
-        пусть на кластере 3 сервера: 1, 2, 3. HAProxy:
-            1 принял запрос пользователя 
-            2 выбрал сервер по алгоритму Round Robin: если сервер 1 не отвечает, то запрос передеается другому.
-            3 пользователь получает ответ (не видит сбоя) 
+        Как работает? HAProxy принимает входящие запросы (HTTP/TCP запросы к какому-то веб-сайту) и направляет их на серверы в 
+            кластере, используя разные  алгоритмы:
+                Round Robin - поочерёдно каждому серверу
+                Least Connections - серверу с наименьшим числом активных подключений
+                IP Hash - привязка клиента к конкретному серверу
+        
+        Наглядный пример: 
+            пусть на кластере 3 сервера: 1, 2, 3, ... HAProxy:
+                1 принял запрос пользователя 
+                2 выбрал сервер по алгоритму Round Robin: если сервер 1 не отвечает, то запрос передеается другому.
+                3 пользователь получает ответ (не видит сбоя) 
 
-    описание: https://www.logicmonitor.com/blog/what-is-haproxy-and-what-is-it-used-for#:~:text=HAProxy%20(High%20Availability%20Proxy)%20is,reliable%20performance%20and%20high%20availability.
+        описание: https://www.logicmonitor.com/blog/what-is-haproxy-and-what-is-it-used-for#:~:text=HAProxy%20(High%20Availability%20Proxy)%20is,reliable%20performance%20and%20high%20availability.
+
+    pacemaker 
+        описание:   clusterlabs.org/projects/pacemaker/doc/2.1/Pacemaker_Explained/singlehtml/
+                    https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html-single/configuring_and_managing_high_availability_clusters/index#proc_providing-feedback-on-red-hat-documentation_configuring-and-managing-high-availability-clusters
+
+    VIP
+        описание:
+            https://edgecenter.ru/knowledge-base/cloud/virtual-ip
+
+    Apache vs Nginx: https://habr.com/ru/articles/267721/
